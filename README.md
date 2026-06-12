@@ -1,25 +1,25 @@
 # Credit Card Fraud Detection: A Machine Learning Case Study
 
-> **A comprehensive machine learning solution for detecting fraudulent credit card transactions using multiple models and sampling strategies.**
+> **A comprehensive machine learning solution for detecting fraudulent credit card transactions using advanced sampling strategies and SHAP-based model interpretability.**
 
 ---
 
 ## **Executive Summary**
 
-This notebook demonstrates a **production-grade machine learning approach** to credit card fraud detection. We build and evaluate 4 machine learning models paired with 5 different sampling techniques to handle a highly imbalanced dataset (0.17% fraud rate).
+This notebook demonstrates a **production-grade machine learning approach** to credit card fraud detection, achieving **83.7% fraud detection rate (recall)** with **86.6% accuracy of flagged transactions (precision)** using XGBoost with Random Over-Sampling.
 
-**Key Achievement**: Developed a **fraud detection system achieving 85%+ recall** (catches most fraud) with **acceptable false alarm rates**, using XGBoost with advanced sampling techniques.
+**Key Achievement**: Built an interpretable fraud detection system using SHAP explanations to comply with regulatory requirements while optimizing business-critical metrics (recall vs false alarm trade-off).
 
 ---
 
 ## **Business Problem**
 
-Credit card fraud is a significant issue affecting both financial institutions and customers:
+Credit card fraud presents a critical challenge:
 - **Scale**: 492 frauds out of 284,807 transactions (0.17% fraud rate—severe imbalance)
-- **Challenge**: Standard ML models are biased toward predicting "legitimate" due to class imbalance
-- **Cost**: Missing fraud is more expensive than false alarms, requiring careful threshold tuning
+- **Challenge**: Standard ML models ignore minority class; 99.83% accuracy means predicting "all legitimate"
+- **Cost Asymmetry**: Missing fraud (~$1,000 loss + reputation damage) >> False alarm (~$10 investigation)
 
-**Solution Approach**: Build an ML model that prioritizes fraud detection while minimizing false positives.
+**Solution Approach**: Systematic comparison of sampling strategies + threshold optimization + model explainability.
 
 ---
 
@@ -30,272 +30,338 @@ Credit card fraud is a significant issue affecting both financial institutions a
 | **Total Transactions** | 284,807 |
 | **Fraudulent** | 492 (0.17%) |
 | **Legitimate** | 284,315 (99.83%) |
+| **Features** | 28 PCA-transformed (V1-V28) + Time + Amount |
 | **Time Period** | September 2013, 2 days |
 | **Geography** | European cardholders |
-| **Features** | 28 PCA-transformed features (V1-V28) + Time + Amount |
 | **Class Imbalance Ratio** | 1:578 (fraud:legitimate) |
-
-**Challenge**: Extreme class imbalance means standard accuracy is useless (a model predicting "all legitimate" gets 99.83% accuracy but 0% fraud detection).
 
 ---
 
-## **Key Findings from EDA (Exploratory Data Analysis)**
+## **Methodology & Key Sections**
 
-### **1. Transaction Amount Patterns**
+### **I. Data Exploration & EDA**
+
+1. Transaction Amount Patterns
 - **Legitimate**: Median $22, concentrated $5.65–$77.05
 - **Fraudulent**: Median $9.25, spread $1.00–$105.89
 - **Insight**: Fraud amounts are more dispersed; fraudsters use both small (under-radar) and large (high-reward) amounts
 - **Model Implication**: Amount alone is insufficient for fraud detection; multivariate approach needed
 
-### **2. Feature Importance**
+2. Feature Importance
 - **Top correlated features with fraud**: V11 (0.1549), V4 (0.1334), V2 (0.0913)
 - **Insight**: All correlations are weak (<0.16), indicating fraud is sophisticated
 - **Model Implication**: Linear models will underperform; tree-based models with feature interactions needed
-
-### **3. Temporal Patterns**
+3. Temporal Patterns
 - **Fraudulent transactions**: Flat across 48 hours
 - **Fraud rate volatility**: Ranges 0.1%–2.2% over 48-hour period
 
 ---
 
-## **Technical Approach**
+### **II. Preprocessing**
 
-### **1. Data Preprocessing**
-- **Outlier Removal**: Used IQR method to remove extreme outliers
-- **Train-Test Split**: 70/30 split with stratification to preserve class distribution
+- **Feature scaling**: RobustScaler (resistant to outliers, unlike StandardScaler)
+- **Train-test split**: 80/20 stratified split (maintains class distribution)
 
-### **2. Sampling Methods (Handling Class Imbalance)**
+---
 
-We tested **5 different sampling strategies**:
+### **III. Sampling Methods: Handling Class Imbalance**
 
-| Method | Approach | Pros | Cons | Recommendation |
-|--------|----------|------|------|-----------------|
-| **Baseline** | Class weight balancing | Simple, no preprocessing | Weak for extreme imbalance | Not recommended |
-| **Random Over-Sampling (ROS)** | Duplicate fraud samples | Preserves all data | May cause overfitting | Good |
-| **Random Under-Sampling (RUS)** | Remove legitimate samples | Fast training | Loses data; biased | Not recommended |
-| **NearMiss** | Smart removal of legitimate samples | Smarter than RUS | Still loses data | Not recommended |
-| **SMOTE-Tomek** | Synthetic fraud + noise removal | Balanced, realistic data | Slightly longer training | Good |
+Tested **5 sampling strategies** on 3 models = 15 configurations initially:
 
-**Key Finding**: SMOTE-Tomek significantly outperforms under-sampling methods. Avoid RUS and NearMiss.
+| Strategy | Approach | Pros | Cons | Status |
+|----------|----------|------|------|--------|
+| **Baseline** | class_weight='balanced' | Simple, no preprocessing | Weak for extreme imbalance | Mixed results |
+| **ROS** | Duplicate fraud samples | Preserves all data | Overfitting risk | Works well |
+| **RUS** | Remove legitimate samples | Fast training | Loses data; biased | Poor performance |
+| **NearMiss** | Smart removal of majority class | Better than random RUS | Still loses data | Extreme overfitting |
+| **SMOTE-Tomek** | Synthetic fraud + noise removal | Balanced, realistic data | Longer training (8826s) | Good |
 
-### **3. Model Selection**
+**Key Finding**: Over-Sampling methods significantly outperformed under-sampling methods. Avoid NearMiss (100% recall, 0.19% precision = useless).
 
-| Model | Type | Use Case | Performance |
-|-------|------|----------|-------------|
-| **Logistic Regression** | Linear | Baseline, interpretable | Poor |
-| **LinearSVC** | Linear SVM | High-dimensional data | Poor |
-| **Random Forest** | Tree Ensemble | Non-linear patterns | Excellent |
-| **XGBoost** | Boosted Trees | Imbalanced data (best in class) | **Best** |
+---
 
-**Why XGBoost wins**:
-- Handles imbalance natively via `scale_pos_weight`
-- Boosting corrects errors sequentially
-- Superior calibrated probability outputs (useful for threshold tuning)
+### **IV. Model Training & Hyperparameter Tuning**
 
-### **4. Hyperparameter Tuning**
+**3 models × varying sampling strategies**:
 
-Used **GridSearchCV** with **3-fold StratifiedKFold** cross-validation to find optimal parameters:
+| Model | Type | Strengths | Weaknesses |
+|-------|------|-----------|-----------|
+| **LogisticRegression** | Linear | Fast, interpretable | Limited to linear patterns |
+| **RandomForest** | Tree Ensemble | Non-linear patterns, robust | Less interpretable |
+| **XGBoost** | Gradient Boosting | Handles imbalance natively, best calibration | Complex tuning |
 
-**XGBoost Grid Search:**
+
+**Tuning Process**:
+- GridSearchCV with 3-fold StratifiedKFold CV
+- Metric: `average_precision` (suitable for imbalanced data)
+- Prevented data leakage: Sampling applied **inside Pipeline during cross-validation**, not before train-test split
+
+---
+
+## **Model Performance: Complete Results (15 Combinations)**
+
+### **All 15 Model-Sampling Combinations**
+
+| Rank | Model | Recall | Precision | F1-Score | Time (s) | Scaled Score |
+|------|--------|--------|-----------|----------|----------|----------------|
+| 1 | XGBoost + Random Over Sampling | 0.878 | 0.860 | 0.869 | 196.41 | 0.874 |
+| 2 | XGBoost | 0.857 | 0.857 | 0.857 | 165.35 | 0.857 |
+| 3 | RandomForest + Random Over Sampling | 0.888 | 0.664 | 0.760 | 835.04 | 0.843 |
+| 4 | RandomForest + balanced class_weight | 0.888 | 0.644 | 0.747 | 767.25 | 0.839 |
+| 5 | RandomForest + SmoteTomek | 0.888 | 0.626 | 0.734 | 1551.62 | 0.835 |
+| 6 | XGBoost + SmoteTomek | 0.847 | 0.728 | 0.783 | 4495.49 | 0.823 |
+| 7 | XGBoost + NearMiss | 0.980 | 0.002 | 0.004 | 26.07 | 0.784 |
+| 8 | RandomForest + Random Under Sampling | 0.878 | 0.368 | 0.518 | 7.74 | 0.776 |
+| 9 | Logistic Regression + Random Over Sampling | 0.888 | 0.231 | 0.366 | 6.04 | 0.756 |
+| 10 | Logistic Regression + SmoteTomek | 0.888 | 0.218 | 0.349 | 272.15 | 0.754 |
+| 11 | Logistic Regression + balanced class_weight | 0.918 | 0.059 | 0.111 | 8.81 | 0.747 |
+| 12 | Logistic Regression + Random Under Sampling | 0.918 | 0.053 | 0.099 | 1.08 | 0.745 |
+| 13 | XGBoost + Random Under Sampling | 0.918 | 0.043 | 0.082 | 16.49 | 0.743 |
+| 14 | RandomForest + NearMiss | 0.918 | 0.004 | 0.009 | 6.82 | 0.736 |
+| 15 | Logistic Regression + NearMiss | 0.878 | 0.036 | 0.069 | 2.15 | 0.709 |
+
+**Scoring Formula**: Scaled Score = **0.8 × Recall + 0.2 × Precision**
+- Prioritizes fraud detection (recall) 4× over false alarm reduction (precision)
+
+---
+
+## **Section VI: Explainable AI - SHAP Analysis**
+
+### **Why SHAP?**
+
+Regulatory compliance (GDPR, Fair Lending) demands model explainability. "Black box" models are unacceptable in production. SHAP provides model-agnostic explanations using Shapley values from game theory.
+
+### **SHAP Methodology**
+
+SHAP value = feature's contribution to moving prediction away from baseline:
+- **Positive SHAP** → pushes toward fraud prediction
+- **Negative SHAP** → pushes toward legitimate prediction
+- **Base value** ~ 0.0001 (average fraud probability across training data)
+
+### **Analysis on Best Model: XGBoost + Random Over Sampling**
+
+#### **1. Feature Importance (SHAP Summary Plot)**
+
+**Top 10 Most Important Features**:
+1. **V14** - Dominant fraud indicator
+2. **V4** - Strong influence
+3. **V12** - Moderate influence
+4. **V10** - Moderate influence
+5. **V7, V8, V16** - Minor influences
+
+#### **2. Feature Dependence Plots (How Features Affect Predictions)**
+
+Analyzed top 4 features:
+
+**V14 Dependence Pattern**:
+- **Extreme negative values** (< -10): HIGH fraud probability (SHAP = +0.4)
+- **Mid-range values** (-5 to +2): Neutral (SHAP ~ 0 - 0.1)
+- **Extreme positive values** (> +2): SHAP ~ 0
+
+**→ Interpretation**: Fraud is indicated by extreme negative V14 values in—suggests unusual transaction patterns.
+
+**V4 Dependence Pattern**:
+- **Positive values** (> 2): HIGH fraud probability
+- **Neutral/negative**: Low fraud probability
+
+**→ Interpretation**: Linear relationship; high V4 strongly indicates fraud.
+
+**V12 & V10 Patterns**:
+- Extreme negative values indicate fraud
+- Interaction effects with V14 (shown by color gradients)
+
+**→ Key Finding**: Fraud is determined by **feature combinations**, not isolated features. No single feature is sufficient.
+
+#### **3. Individual Prediction Explanations (Force Plots)**
+
+**Example Fraudulent Transaction**:
+```
+Base prediction: 0.01% fraud probability
+V12 = -11.81  → +0.18  (toward fraud)
+V14 = -4.23 → +0.15 (toward fraud)
+V10 = -21.06 → +0.15  (toward fraud)
+V4 = 4.44 → +0.14  (toward fraud)
+V16 = -9.03 → +0.1  (toward fraud)
+...
+Other features: small contributions
+─────────────────────────────────────
+Final: ~1.0 (flagged as fraud) 
+```
+
+**Example Legitimate Transaction**:
+```
+Base prediction: 0.01% fraud probability
+V14 = -0.95 → +0.0005 (weak fraud signal)
+V12 = -0.94 → +0.0004 (weak fraud signal)
+V4  = -1.28 → -0.0004 (pushes away from fraud)
+V8  = 1.81 → -0.00025  (pushes away from fraud)
+...
+─────────────────────────────────────
+Final: ~0.15% (classified legitimate)
+```
+
+**→ Interpretation**: Model decisions are traceable and logical. Can explain to customers/regulators.
+
+#### **4. Decision Plots (Model Decision Paths)**
+
+**Fraudulent Transactions**:
+- **Consistent pattern**: All fraudulent transactions follow similar decision paths
+- **Convergence**: Features push predictions strongly toward fraud (right side)
+- **No randomness**: Model uses consistent logic (good sign—not overfitting)
+
+**Legitimate Transactions**:
+- **Diverse patterns**: Many different feature combinations lead to legitimate classification
+- **Convergence point**: Around 0 (neutral)
+- **Divergence**: Legitimate class has wider variety of decision paths, somes distinct to the others
+
+**→ Interpretation**: 
+- Fraud is a specific pattern (few pathways)
+- Legitimate transactions are diverse (many valid patterns)
+- Model captures this correctly
+
+---
+
+## **Section VII: Threshold Tuning - Business-Driven Optimization**
+
+### **The Problem with Default Threshold (0.5)**
+
+Default classification rule: Predict fraud if P(fraud) ≥ 0.5
+
+But fraud detection should not use 0.5:
+- **Cost asymmetry**: Missing fraud >> False alarm
+- **Risk tolerance**: Business prefers catching fraud over customer convenience
+
+### **Threshold Tuning Process**
+
+1. Generate probability predictions on test set
+2. Test thresholds 0.1–0.9 in 0.1 increments
+3. For each threshold, compute recall, precision, F1
+4. Select threshold maximizing business metric: **0.8×Recall + 0.2×Precision**
+
+### **Results: Before & After Threshold Tuning**
+
+#### **Best Model: XGBoost + Random Over Sampling**
+
+| Metric | Threshold 0.5 (Default) | Optimized (Threshold = 0.6) | Change |
+|---------|---------|---------|---------|
+| Recall | 0.878 | 0.878 | +0.000 |
+| Precision | 0.860 | 0.878 | +0.018 |
+| F1-Score | 0.869 | 0.878 | +0.009 |
+| Scaled Score | 0.874 | 0.878 | +0.004 |
+
+#### **Other Top Models Benefited from Tuning**
+
+| Model | Threshold | Recall Change | Precision Change | F1 Change | Scaled Score Improvement |
+|---------|---------|---------|---------|---------|---------|
+| XGBoost | 0.2 | +0.020 | -0.038 | -0.010 | +0.009 |
+| Random Forest + SmoteTomek | 0.6 | +0.000 | +0.054 | +0.036 | +0.011 |
+| XGBoost + SmoteTomek | 0.7 | +0.000 | +0.078 | +0.043 | +0.016 |
+
+**Key Insight**: Threshold tuning matters. Different models need different thresholds.
+
+---
+
+## **Technical Highlights & Innovations**
+
+### **1. Data Leakage Prevention**
+
+**Wrong Approach**:
 ```python
-params_grid_xgb = {
-    'scale_pos_weight': [10, 15],       # Weight fraud class
-    'min_child_weight': [2, 5, 7],      # Prevent overfitting
-    'gamma': [0.3, 0.5, 1.0],          # Regularization
-    'max_depth': [5, 7],                # Tree depth
-    'learning_rate': [0.01, 0.05],     # Step size
-    'n_estimators': [200, 300]          # Boosting rounds
-}
+# Apply sampling FIRST, then split
+from imblearn.over_sampling import SMOTE
+X_balanced, y_balanced = SMOTE().fit_resample(X, y)
+X_train, X_test, y_train, y_test = train_test_split(X_balanced, y_balanced)
+# ← Test set contains SYNTHETIC fraud samples!
+# ← Model never sees real test fraud patterns during training
 ```
 
----
+**Correct Approach**(Used in this project):
+```python
+from imblearn.pipeline import Pipeline as ImbPipeline
+X_train, X_test, y_train, y_test = train_test_split(X, y)  # SPLIT FIRST
 
-## **Model Comparison Results**
+# Create pipeline: sampling happens INSIDE cross-validation
+pipe = ImbPipeline([
+    ('scaler', RobustScaler()),
+    ('sampler', SMOTE()),  # Applied to training folds only
+    ('clf', XGBClassifier())
+])
 
-### **Performance Across All 20 Model-Sampling Combinations**
-
-| Rank | Model + Sampling Method | Recall | Precision | F1-Score | Time (s) | Scaled Score |
-|------|--------------------------|--------|-----------|----------|----------|--------------|
-| 0 | XGBoost + Random Over Sampling | 0.845528 | 0.845528 | 0.845528 | 356.14 | 0.845528 |
-| 1 | RandomForest + balanced class_weight | 0.861789 | 0.679487 | 0.759857 | 479.20 | 0.841402 |
-| 2 | RandomForest + SmoteTomek | 0.861789 | 0.630952 | 0.728522 | 1371.80 | 0.835135 |
-| 3 | RandomForest + Random Over Sampling | 0.853659 | 0.681818 | 0.758123 | 634.46 | 0.834551 |
-| 4 | XGBoost + SmoteTomek | 0.861789 | 0.569892 | 0.686084 | 6170.69 | 0.826648 |
-| 5 | XGBoost | 0.796748 | 0.899083 | 0.844828 | 218.45 | 0.806364 |
-| 6 | XGBoost + Nearmiss | 1.000000 | 0.001902 | 0.003797 | 45.19 | 0.800759 |
-| 7 | RandomForest + Random Under Sampling | 0.845528 | 0.462222 | 0.597701 | 5.68 | 0.795963 |
-| 8 | LogisticRegression + SmoteTomek | 0.861789 | 0.222222 | 0.353333 | 240.51 | 0.760098 |
-| 9 | LogisticRegression + Random Over Sampling | 0.853659 | 0.242494 | 0.377698 | 12.08 | 0.758466 |
-| 10 | LinearSVC + Nearmiss | 0.943089 | 0.003045 | 0.006070 | 1.59 | 0.755686 |
-| 11 | XGBoost + Random Under Sampling | 0.910569 | 0.042058 | 0.080402 | 38.98 | 0.744536 |
-| 12 | LogisticRegression + Random Under Sampling | 0.894309 | 0.074526 | 0.137586 | 0.99 | 0.742964 |
-| 13 | LinearSVC + balanced class_weight | 0.886179 | 0.072042 | 0.133252 | 11.10 | 0.735593 |
-| 14 | LinearSVC + Random Over Sampling | 0.886179 | 0.071102 | 0.131643 | 10.27 | 0.735272 |
-| 15 | LinearSVC + Random Under Sampling | 0.894309 | 0.050575 | 0.095735 | 0.86 | 0.734594 |
-| 16 | LogisticRegression + balanced class_weight | 0.886179 | 0.060826 | 0.113838 | 16.50 | 0.731711 |
-| 17 | LinearSVC + SmoteTomek | 0.878049 | 0.067925 | 0.126095 | 211.84 | 0.727658 |
-| 18 | RandomForest + Nearmiss | 0.894309 | 0.005284 | 0.010507 | 5.52 | 0.717548 |
-| 19 | LogisticRegression + Nearmiss | 0.878049 | 0.004305 | 0.008567 | 1.90 | 0.704152 |
-
-**Scoring Formula**: Scaled Score = **0.8 × Recall + 0.2 × F1-Score**
-- Weights reflect business priority: catching fraud (recall) is 4× more important than false alarm reduction (F1)
-
-**Key Insight**: **XGBoost and Random Forest dominates all other combinations.**
-
----
-
-## **Threshold Tuning: The Final Optimization**
-
-### **Why Threshold Tuning Matters**
-
-By default, ML classifiers predict fraud if P(fraud) ≥ 0.5. But for fraud detection:
-- **Lower threshold** (e.g., 0.3): Catches 95% of fraud but 10% false alarms (operational burden)
-- **Higher threshold** (e.g., 0.7): Catches 80% of fraud but 2% false alarms (customers happy, some fraud missed)
-
-**Solution**: Test thresholds 0.1–0.9 and pick the one matching business requirements.
-
-### **Final Model Performance (After Threshold Tuning)**
-
-| Rank | Model + Sampling Method | Threshold | Recall | Precision | F1-Score | Scaled Score |
-|------|--------------------------|-----------|--------|-----------|----------|--------------|
-| 0 | XGBoost + Random Over Sampling | 0.5 | 0.845528 | 0.845528 | 0.845528 | 0.845528 |
-| 1 | XGBoost + SmoteTomek | 0.7 | 0.861789 | 0.711409 | 0.779412 | 0.845313 |
-| 2 | Random Forest + class weight balanced | 0.5 | 0.861789 | 0.679487 | 0.759857 | 0.841402 |
-| 3 | Random Forest + SmoteTomek | 0.6 | 0.853659 | 0.690789 | 0.763636 | 0.835654 |
-| 4 | Random Forest + Random Over Sampling | 0.6 | 0.837398 | 0.751825 | 0.792308 | 0.828380 |
-
-
----
-
-## **Key Takeaways**
-
-### **What Worked Well**
-**SMOTE-Tomek sampling** significantly improved all models  
-**XGBoost with advanced regularization** outperformed all competitors  
-**Tree-based models > Linear models** for this non-linear problem  
-
-### **What Should Be Avoided**
-**Random Under-Sampling**: Loses valuable data; ranked in bottom tier  
-**NearMiss**: Creates biased decision boundaries; limited effectiveness  
-**Linear models** (LogReg, LinearSVC): Too simplistic for fraud complexity  
-
----
-
-## **Notebook Structure**
-
-```
-Credit Card Fraud Detection Notebook
-├── I. About Dataset
-├── II. Overall Data Exploration
-├── III. Exploratory Data Analysis (EDA)
-│   ├── Transaction amount distribution
-│   ├── Feature correlations
-│   └── Temporal patterns
-├── IV. Preprocessing
-│   ├── Outlier removal
-│   └── Feature scaling
-├── V. Sampling Methods
-│   ├── RUS (not recommended)
-│   ├── NearMiss (not recommended)
-│   ├── ROS (good)
-│   └── SMOTE-Tomek (best)
-├── VI. Model Training
-│   ├── Logistic Regression (baseline)
-│   ├── LinearSVC (linear SVM)
-│   ├── Random Forest (ensemble)
-│   └── XGBoost (best)
-├── VII. Evaluation & Threshold Tuning
-│   ├── Model performance comparison
-│   ├── Learning curves & confusion matrices
-│   ├── Threshold tuning process
-│   └── Final model selection
-└── VIII. Conclusion
-    ├── Model evaluation summary
-    ├── Limitations & challenges
-    └── Future works & recommendations
+# GridSearchCV with cross-validation
+grid = GridSearchCV(pipe, param_grid, cv=StratifiedKFold(3))
+grid.fit(X_train, y_train)  # Sampling only on training folds!
+grid.score(X_test, y_test)  # Evaluated on real, unsampled test set
 ```
 
----
+**Why This Matters**: Test set remains truly unsampled, providing honest evaluation of real-world performance.
 
-## **What This Demonstrates**
+### **2. SHAP Explainability for Production**
 
-This project showcases **practical machine learning skills** valued by industry:
+Unlike black-box predictions, SHAP enables:
+- **Individual explanations**: "Why was this transaction flagged?"
+- **Regulatory compliance**: Provide auditable decision rationales
+- **Customer communication**: Explain decisions transparently
+- **Model debugging**: Identify if model uses logical features
 
-1. **Problem Understanding** 
-   - Identified class imbalance as core challenge
-   - Chose appropriate metrics (recall, F1 over accuracy)
+**Result**: Every flagged transaction can be explained to customers and regulators.
 
-2. **Data Engineering**
-   - Explored sampling methods and their trade-offs
-   - Built proper ML pipelines preventing data leakage
+### **3. Business-Driven Threshold Optimization**
 
-3. **Model Development**
-   - Compared 4 models × 5 sampling strategies systematically
-   - Hyperparameter tuned with GridSearchCV
+Standard ML optimizes accuracy; fraud detection must optimize business metric:
+- **Goal**: Maximize fraud caught (recall) while minimizing false alarms (precision)
+- **Formula**: Scaled Score = 0.8×Recall + 0.2×Precision
+- **Result**: Optimal threshold varies by model; not always 0.5
 
-4. **Business Acumen**
-   - Understood cost asymmetry (missing fraud > false alarms)
-   - Optimized threshold for business requirements
-
-5. **Production Thinking**
-   - Considered real-time deployment (latency, throughput)
-   - Discussed model maintenance and concept drift
-   - Identified future improvements (deep learning, cost-sensitive learning)
+**Deployment**: Use threshold 0.5 for best model. Adjust if business costs change.
 
 ---
 
-## **How to Use This Notebook**
+## **Final Model Selection**
 
-### **Requirements**
-```
-Python 3.8+
-pandas, numpy, scikit-learn, xgboost
-imbalanced-learn (for SMOTE, RUS, NearMiss)
-matplotlib, seaborn (for visualizations)
-```
-### **Running the Notebook**
-1. **Load dataset**: Ensures data is available and explores basic properties
-2. **Run EDA**: Understand fraud vs. legitimate transaction patterns
-3. **Preprocess**: Remove outliers and scale features
-4. **Test sampling methods**: Visualize how each technique balances classes
-5. **Train models**: Runs all 20 model-sampling combinations with grid search
-6. **Evaluate & tune thresholds**: Select final model and optimal decision threshold
-7. **Review conclusions**: Understand limitations and future improvements
+### **Best Model: XGBoost + Random Over Sampling**
 
-### **Expected Runtime**
-- EDA: 5-10 minutes
-- Preprocessing: <1 minute
-- Model training (with GridSearchCV): 3-4 hours
-- **Total**: ~4 hours
+**Why This Model?**
+- **Highest scaled score** (0.878) across all 15 combinations
+- **Balanced recall-precision** (87.7% catch rate, 87.7% precision)
+- **Reasonable training time** (196.1s, not extreme like SMOTE-Tomek)
+- **Well-calibrated probabilities** (suitable for threshold optimization)
+- **Interpretable via SHAP**
+
+**Test Set Performance**:
+| Metric | Value |
+|--------|-------|
+| Recall | 87.7% (catches 4 out of 5 frauds) |
+| Precision | 87.7% (8.7 out of 10 alarms are correct) |
+| Optimal Threshold | 0.6 |
+
+**Business Interpretation**:
+- Out of 100 fraud cases, model catches ~88 (12 missed fraud)
+- Out of 100 fraud alerts, ~88 are genuine (12 false positives)
 
 ---
 
-## **References & Resources**
+## **References**
 
-### **Dataset Source**
-- [Kaggle: Credit Card Fraud Detection](https://www.kaggle.com/mlg-ulb/creditcardfraud)
-- Original paper: Andrea Dal Pozzolo et al. (2018)
-
-### **Key Techniques Used**
-- **Sampling**: [Imbalanced-Learn Documentation](https://imbalanced-learn.org)
+- **Dataset**: [ULB Credit Card Fraud (Kaggle)](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud)
+- **SHAP**: [Lundberg & Lee (2017) - A Unified Approach to Interpreting Model Predictions](https://arxiv.org/abs/1705.07874)
+- **Imbalanced Learning**: [Imbalanced-learn Documentation](https://imbalanced-learn.org/)
 - **XGBoost**: [XGBoost Documentation](https://xgboost.readthedocs.io/)
 - **Threshold Optimization**: [Scikit-learn Threshold Metrics](https://scikit-learn.org/stable/modules/model_evaluation.html)
 
-### **Further Reading**
-- "Dealing with Imbalanced Data" — Kaggle discussion forums
-- SMOTE vs. ADASYN comparison studies
-- Cost-sensitive learning for fraud detection
+---
+
+## **Project Summary**
+
+This notebook showcases **production-grade machine learning**:
+
+**Handled severe class imbalance** thoughtfully (tested 5 strategies)  
+**Prevented data leakage** (sampling inside pipeline, not before split)  
+**Built interpretable models** (SHAP explains every prediction)  
+**Optimized for business** (threshold tuning, not just accuracy)  
+**Achieved strong results** (87.7% recall, 87.7% precision)  
+
+**Final Result**: A fraud detection system ready for production deployment with full explainability for regulators and customers.
 
 ---
 
-## **About This Work**
 
-This notebook represents a **complete machine learning lifecycle** for fraud detection:
-- From raw data exploration to production-ready model
-- Systematic comparison of methods and models
-- Business-driven optimization (threshold tuning)
-- Production deployment roadmap
-
-**Key Insight**: Building effective fraud detection isn't just about accuracy—it's about understanding business trade-offs, handling imbalance intelligently, and thinking ahead about real-world deployment challenges.
-
----
