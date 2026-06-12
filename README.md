@@ -1,4 +1,4 @@
-# Credit Card Fraud Detection: A Machine Learning Case Study
+# Credit Card Fraud Detection with SHAP: A Machine Learning Case Study
 
 > **A comprehensive machine learning solution for detecting fraudulent credit card transactions using advanced sampling strategies and SHAP-based model interpretability.**
 
