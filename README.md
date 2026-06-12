@@ -6,7 +6,7 @@
 
 ## **Executive Summary**
 
-This notebook demonstrates a **production-grade machine learning approach** to credit card fraud detection, achieving **83.7% fraud detection rate (recall)** with **86.6% accuracy of flagged transactions (precision)** using XGBoost with Random Over-Sampling.
+This notebook demonstrates a **production-grade machine learning approach** to credit card fraud detection, achieving **87.7% fraud detection rate (recall)** with **87.7% accuracy of flagged transactions (precision)** using XGBoost with Random Over-Sampling.
 
 **Key Achievement**: Built an interpretable fraud detection system using SHAP explanations to comply with regulatory requirements while optimizing business-critical metrics (recall vs false alarm trade-off).
 
@@ -17,7 +17,7 @@ This notebook demonstrates a **production-grade machine learning approach** to c
 Credit card fraud presents a critical challenge:
 - **Scale**: 492 frauds out of 284,807 transactions (0.17% fraud rate—severe imbalance)
 - **Challenge**: Standard ML models ignore minority class; 99.83% accuracy means predicting "all legitimate"
-- **Cost Asymmetry**: Missing fraud (~$1,000 loss + reputation damage) >> False alarm (~$10 investigation)
+- **Cost Asymmetry**: Missing fraud (~$1,000 loss + reputation damage) > False alarm (~$10 investigation)
 
 **Solution Approach**: Systematic comparison of sampling strategies + threshold optimization + model explainability.
 
@@ -74,9 +74,9 @@ Tested **5 sampling strategies** on 3 models = 15 configurations initially:
 | **ROS** | Duplicate fraud samples | Preserves all data | Overfitting risk | Works well |
 | **RUS** | Remove legitimate samples | Fast training | Loses data; biased | Poor performance |
 | **NearMiss** | Smart removal of majority class | Better than random RUS | Still loses data | Extreme overfitting |
-| **SMOTE-Tomek** | Synthetic fraud + noise removal | Balanced, realistic data | Longer training (8826s) | Good |
+| **SMOTE-Tomek** | Synthetic fraud + noise removal | Balanced, realistic data | Longer training | Good |
 
-**Key Finding**: Over-Sampling methods significantly outperformed under-sampling methods. Avoid NearMiss (100% recall, 0.19% precision = useless).
+**Key Finding**: Over-Sampling methods significantly outperformed under-sampling methods. Avoid NearMiss (99% recall, 0.01% precision = useless).
 
 ---
 
@@ -228,7 +228,7 @@ Final: ~0.15% (classified legitimate)
 Default classification rule: Predict fraud if P(fraud) ≥ 0.5
 
 But fraud detection should not use 0.5:
-- **Cost asymmetry**: Missing fraud >> False alarm
+- **Cost asymmetry**: Missing fraud > False alarm
 - **Risk tolerance**: Business prefers catching fraud over customer convenience
 
 ### **Threshold Tuning Process**
